@@ -11,3 +11,4 @@ debug = true
 
 [dependencies]
 regex = "1"
+phf = { version = "0.8.0", features = ["macros"] }

@@ -1,57 +1,76 @@
-use regex::Regex;
+pub mod scanner {
+    use regex::Regex;
+    use std::io::BufRead;
 
-pub trait PeekableIterator : std::iter::Iterator {
-    fn peek(&mut self) -> Option<&Self::Item>;
-}
+    use crate::metadata;
+    use crate::token_types;
+    use crate::token;
 
-impl<I: std::iter::Iterator> PeekableIterator for std::iter::Peekable<I> {
-    fn peek(&mut self) -> Option<&Self::Item> {
-        std::iter::Peekable::peek(self)
+    pub trait PeekableIterator : std::iter::Iterator {
+        fn peek(&mut self) -> Option<&Self::Item>;
     }
-}
 
-#[allow(dead_code)]
-pub struct Scan {
-    metainfo: super::metadata::Metainfo,
-}
-
-impl Scan {
-    pub fn new() -> Scan {
-        Scan {
-            metainfo: super::metadata::Metainfo::new(),
+    impl<I: std::iter::Iterator> PeekableIterator for std::iter::Peekable<I> {
+        fn peek(&mut self) -> Option<&Self::Item> {
+            std::iter::Peekable::peek(self)
         }
     }
 
-    pub fn print_block(&mut self) {
-        println!("{:?}", self.metainfo);
+    // implements the regular expression responsible to look for {= .* =} and
+    // {% .* %}. Each of these two blocks will be evaluated, anything else is
+    // just text.
+    const REG_BLOCK: &str = concat!(r#"(?P<code>\{% [a-z][a-zA-Z0-9\-,.%_\\\[\]"() ]+ %\})|"#,
+                                     r#"(?P<echo>\{= [a-z][a-zA-Z0-9_\[\]"]+ =\})|"#,
+                                     r#"(?P<text>.[^\{]*)"#);
+
+    const REG_INNER_BLOCK: &str = r"^\{[%|=] (?P<code>.+) [%|=]\}";
+
+    pub fn scan(file: &mut std::io::BufReader<std::fs::File>) -> Vec<metadata::Metadata> {
+        let mut ret: Vec<metadata::Metadata> = Vec::new();
+
+        for line in file.lines() {
+            let mut data = parse_block(&line.unwrap());
+            ret.append(&mut data);
+        }
+
+        ret
     }
 
-    pub fn parse_block(&mut self, line: String) {
-        let re_block = Regex::new(r#"(?P<code>\{% [a-z][a-zA-Z0-9\-,.%_\\\[\]"() ]+ %\})|(?P<echo>\{= [a-z][a-zA-Z0-9_\[\]"]+ =\})|(?P<text>.[^\{]*)"#).unwrap();
+    fn parse_block(line: &String) -> Vec<metadata::Metadata> {
+        let re_block = Regex::new(REG_BLOCK).unwrap();
+        let mut ret: Vec<metadata::Metadata> = Vec::new();
 
         for group in re_block.captures_iter(&line) {
             for name in re_block.capture_names() {
                 match name {
                     Some(s) => match group.name(s) {
                         Some(gs) => {
-                            let mtype : super::metadata::Metatype;
+                            let tokens: Option<Vec<token::Token>>;
+                            let mtype: metadata::Metatype;
                             if s == "text" {
-                                mtype = super::metadata::Metatype::TEXT;
+                                mtype = metadata::Metatype::TEXT;
+                                tokens = None;
                             }
                             else if s == "code" {
-                                mtype = super::metadata::Metatype::CODE;
+                                let data = String::from(gs.as_str());
+                                mtype = metadata::Metatype::CODE;
+                                tokens = Some(tokenize(&data));
                             }
                             else if s == "echo" {
-                                mtype = super::metadata::Metatype::ECHO;
+                                let data = String::from(gs.as_str());
+                                mtype = metadata::Metatype::ECHO;
+                                tokens = Some(tokenize(&data));
                             }
                             else {
-                                mtype = super::metadata::Metatype::COMMENT;
+                                mtype = metadata::Metatype::COMMENT;
+                                tokens = None;
                             }
 
-                            self.metainfo.add_metadata(super::metadata::Metadata::new(
-                                    mtype,
-                                    String::from(gs.as_str()))
-                            );
+                            ret.push(metadata::Metadata::new(
+                                mtype,
+                                String::from(gs.as_str()),
+                                tokens,
+                            ));
                         }
                         None => continue,
                     }
@@ -59,9 +78,57 @@ impl Scan {
                 }
             }
         }
+
+        ret
     }
 
-    fn parse_string<P>(&mut self, meta: &mut super::metadata::Metadata, iter: &mut P)
+    fn tokenize(code: &String) -> Vec<token::Token> {
+        let mut ret: Vec<token::Token> = Vec::new();
+        let re_internal = Regex::new(REG_INNER_BLOCK).unwrap();
+        let mut iter = match re_internal.captures(code) {
+            Some(cap) => match cap.name("code") {
+                Some(name) => name.as_str().chars().peekable(),
+                None => panic!("cannot retrieve code from block {}", code),
+            }
+            None => panic!("invalid code {}", code),
+        };
+
+        loop {
+            match iter.peek() {
+                None => break,
+                Some(&ch) => {
+                    match ch {
+                        // skip empty spaces
+                        ' ' | '\t' | '\r' => {
+                            iter.next();
+                        }
+                        // strings starts with "
+                        '"' => {
+                            ret.push(parse_string(&mut iter));
+                            iter.next();
+                        }
+                        // digits
+                        '0'..='9' => {
+                            ret.push(parse_number(&mut iter));
+                        }
+                        // identifiers
+                        'a'..='z' => {
+                            ret.push(parse_id(&mut iter));
+                        }
+                        // operators and errors
+                        _ => {
+                            ret.push(parse_single_op(ch));
+                            iter.next();
+                        }
+                    }
+                }
+            }
+        }
+
+        ret
+    }
+
+    fn parse_string<P>(iter: &mut P) -> token::Token
     where P: PeekableIterator<Item=char> {
         let mut data: String = String::new();
 
@@ -83,13 +150,10 @@ impl Scan {
             iter.next();
         }
 
-        meta.add_token(super::token::Token {
-            ttype: super::token_types::TokenTypes::STRING,
-            value: Some(data),
-        });
+        token::Token::new(token_types::TokenTypes::STRING, Some(data))
     }
 
-    fn parse_number<P>(&mut self, meta: &mut super::metadata::Metadata, iter: &mut P)
+    fn parse_number<P>(iter: &mut P) -> token::Token
     where P: PeekableIterator<Item=char> {
         let mut data: u64 = 0;
 
@@ -109,19 +173,15 @@ impl Scan {
             iter.next();
         }
 
-        meta.add_token(super::token::Token {
-            ttype: super::token_types::TokenTypes::STRING,
-            value: Some(data.to_string()),
-        });
+        token::Token::new(token_types::TokenTypes::NUMBER, Some(data.to_string()))
     }
 
-    fn parse_id<P>(&mut self, meta: &mut super::metadata::Metadata, iter: &mut P)
+    fn parse_id<P>(iter: &mut P) -> token::Token
     where P: PeekableIterator<Item=char> {
         let mut data: String = String::new();
 
         loop {
             match iter.peek() {
-                None => break,
                 Some(&ch) => {
                     match ch {
                         'a'..='z' | 'A'..='Z' | '_' => {
@@ -129,55 +189,36 @@ impl Scan {
                         }
                         _ => break,
                     }
-                }
+                },
+                None => break,
             }
             iter.next();
         }
 
-        println!("{:?}", data);
-
-        meta.add_token(super::token::Token {
-            ttype: super::token_types::TokenTypes::STRING,
-            value: Some(data),
-        });
-    }
-
-    pub fn scan(&mut self, line: String) {
-        let mut s = String::new();
-        let mut meta = super::metadata::Metadata::new(super::metadata::Metatype::TEXT, s);
-        let mut iter = line.chars().peekable();
-        loop {
-            match iter.peek() {
-                None => break,
-                Some(&ch) => {
-                    match ch {
-                        // skip empty spaces
-                        ' ' | '\t' | '\r' => {
-                            iter.next();
-                        }
-                        // strings starts with "
-                        '"' => {
-                            self.parse_string(&mut meta, &mut iter);
-                            iter.next();
-                        }
-                        // digits
-                        '0'..='9' => {
-                            self.parse_number(&mut meta, &mut iter);
-                            iter.next();
-                        }
-                        // identifiers
-                        'a'..='z' => {
-                            self.parse_id(&mut meta, &mut iter);
-                            iter.next();
-                        }
-                        // ids and errors
-                        _ => {
-                            //eprintln!("Inexpected {}", ch);
-                            iter.next();
-                        }
-                    }
-                }
+        match token_types::keyword_by_token(data.as_str()) {
+            Some(tk) => {
+                token::Token::new(tk, Some(data))
+            },
+            None => {
+                token::Token::new(token_types::TokenTypes::IDENTIFIER, Some(data))
             }
         }
+    }
+
+    fn parse_single_op(op: char) -> token::Token {
+        token::Token::new(match op {
+            '+' => token_types::TokenTypes::PLUS,
+            '-' => token_types::TokenTypes::MINUS,
+            '/' => token_types::TokenTypes::SLASH,
+            '%' => token_types::TokenTypes::PERCENT,
+            '*' => token_types::TokenTypes::STAR,
+            '=' => token_types::TokenTypes::ASSIGN,
+            ',' => token_types::TokenTypes::COMMA,
+            '(' => token_types::TokenTypes::LPAREN,
+            '[' => token_types::TokenTypes::LBRACKET,
+            ')' => token_types::TokenTypes::RPAREN,
+            ']' => token_types::TokenTypes::RBRACKET,
+            _ => panic!("invalid operator {}", op),
+        }, Some(op.to_string()))
     }
 }

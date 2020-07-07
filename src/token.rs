@@ -1,14 +1,25 @@
-pub(super) struct Token {
-    pub ttype: super::token_types::TokenTypes,
-    pub value: Option<String>,
+use std::fmt;
+use super::token_types;
+
+pub struct Token {
+    token_type: token_types::TokenTypes,
+    value: Option<String>,
 }
 
 impl Token {
-    #[allow(dead_code)]
-    pub fn new() -> Token {
+    pub fn new(token_type: token_types::TokenTypes, value: Option<String>) -> Token {
         Token {
-            ttype: super::token_types::TokenTypes::IDENTIFIER,
-            value: None,
+            token_type,
+            value,
         }
+    }
+}
+
+impl fmt::Debug for Token {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Token")
+            .field("token_type", &self.token_type)
+            .field("value", &self.value)
+            .finish()
     }
 }

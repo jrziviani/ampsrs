@@ -1,10 +1,12 @@
+use phf::phf_map;
+
 #[allow(dead_code)]
+#[derive(Debug, Clone)]
 pub enum TokenTypes {
     IDENTIFIER,
     VARIABLE,
     STRING,
     NUMBER,
-    PAIR,
     BOOLEAN,
     TRUE,
     FALSE,
@@ -16,11 +18,12 @@ pub enum TokenTypes {
     NE,
     LT,
     LE,
+    GT,
     GE,
     PLUS,
     MINUS,
     SLASH,
-    START,
+    STAR,
     PERCENT,
     ASSIGN,
     COMMA,
@@ -31,12 +34,44 @@ pub enum TokenTypes {
     FOR,
     IN,
     ENDFOR,
-    LEFT_PAREN,
-    LEFT_BRACKET,
-    RIGHT_PAREN,
-    RIGHT_BRACKET,
+    LPAREN,
+    LBRACKET,
+    RPAREN,
+    RBRACKET,
     RANGE,
     PRINT,
     EXCEPT,
     INSERT,
+    INVALID,
+}
+
+static KEYWORDS: phf::Map<&'static str, TokenTypes> = phf_map! {
+    "boolean"   => TokenTypes::BOOLEAN,
+    "true"      => TokenTypes::TRUE,
+    "false"     => TokenTypes::FALSE,
+    "null"      => TokenTypes::NIL,
+    "and"       => TokenTypes::AND,
+    "or"        => TokenTypes::OR,
+    "not"       => TokenTypes::NOT,
+    "eq"        => TokenTypes::EQ,
+    "ne"        => TokenTypes::NE,
+    "lt"        => TokenTypes::LT,
+    "le"        => TokenTypes::LE,
+    "gt"        => TokenTypes::GT,
+    "ge"        => TokenTypes::GE,
+    "if"        => TokenTypes::IF,
+    "else"      => TokenTypes::ELSE,
+    "elif"      => TokenTypes::ELIF,
+    "endif"     => TokenTypes::ENDIF,
+    "for"       => TokenTypes::FOR,
+    "in"        => TokenTypes::IN,
+    "endfor"    => TokenTypes::ENDFOR,
+    "range"     => TokenTypes::RANGE,
+    "print"     => TokenTypes::PRINT,
+    "except"    => TokenTypes::EXCEPT,
+    "insert"    => TokenTypes::INSERT,
+};
+
+pub fn keyword_by_token(token: &str) -> Option<TokenTypes> {
+    KEYWORDS.get(token).cloned()
 }
