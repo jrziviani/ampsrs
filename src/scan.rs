@@ -25,8 +25,8 @@ pub mod scanner {
 
     const REG_INNER_BLOCK: &str = r"^\{[%|=] (?P<code>.+) [%|=]\}";
 
-    pub fn scan(file: &mut std::io::BufReader<std::fs::File>) -> Vec<metadata::Metadata> {
-        let mut ret: Vec<metadata::Metadata> = Vec::new();
+    pub fn scan(file: &mut std::io::BufReader<std::fs::File>) -> metadata::Metainfo {
+        let mut ret: metadata::Metainfo = Vec::new();
 
         for line in file.lines() {
             let mut data = parse_block(&line.unwrap());
@@ -36,9 +36,9 @@ pub mod scanner {
         ret
     }
 
-    fn parse_block(line: &String) -> Vec<metadata::Metadata> {
+    fn parse_block(line: &String) -> metadata::Metainfo {
         let re_block = Regex::new(REG_BLOCK).unwrap();
-        let mut ret: Vec<metadata::Metadata> = Vec::new();
+        let mut ret: metadata::Metainfo = Vec::new();
 
         for group in re_block.captures_iter(&line) {
             for name in re_block.capture_names() {

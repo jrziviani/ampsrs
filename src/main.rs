@@ -5,10 +5,12 @@ use std::io::ErrorKind;
 
 mod token_types;
 mod token;
-mod scan;
 mod metadata;
+mod scan;
+mod generator;
 
 use scan::scanner;
+use generator::parsing;
 
 fn main() -> Result<(), std::io::Error> {
     let args: Vec<String> = env::args().collect();
@@ -35,9 +37,10 @@ fn main() -> Result<(), std::io::Error> {
 
     println!("Scaning template...");
     let info = scanner::scan(&mut buf_reader);
-    for i in info {
-        println!("{:#?}", i);
-    }
+    parsing::parse(&info);
+    //for i in info {
+    //    println!("{:#?}", i);
+    //}
 
     Ok(())
 }
