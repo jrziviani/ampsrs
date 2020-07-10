@@ -34,47 +34,67 @@ impl Metadata {
     }
 }
 
-pub struct Tokenable<I: Iterator> {
-    iter: I,
-    data: Option<Option<I::Item>>,
+pub struct Tokenator<'a> {
+    buffer: &'a Vec<token::Token>,
+    index: usize,
 }
 
-impl<I: Iterator> Tokenable<I> {
-    pub fn new(iter: I) -> Tokenable<I> {
-        Tokenable { iter, data: None }
-    }
-}
-
-impl<I: Iterator> Iterator for Tokenable<I> {
-    type Item = I::Item;
-
-    fn next(&mut self) -> Option<I::Item> {
-        match self.data.take() {
-            Some(v) => v,
-            None => self.iter.next(),
+impl<'a> Tokenator<'a> {
+    pub fn new(tokens: &Vec<token::Token>) -> Tokenator {
+        Tokenator {
+            buffer: tokens,
+            index: 0,
         }
     }
 }
 
-impl<I: Iterator> Tokenable<I> {
-    pub fn look(&mut self) -> Option<&I::Item> {
-        let iter = &mut self.iter;
-        self.data.get_or_insert_with(|| iter.next()).as_ref()
-    }
+pub trait TokenatorTrait {
+    fn next(&mut self)   -> Option<&token::Token>;
+    fn look(&self)       -> Option<&token::Token>;
+    fn look_back(&self)  -> Option<&token::Token>;
+    fn look_ahead(&self) -> Option<&token::Token>;
+    fn match_next(&mut self, token_type: token_types::TokenTypes) -> bool;
 }
 
-// pub trait TokenableIterator : Iterator {
-//     fn look(&mut self) -> Option<Self::Item>;
-// }
-//  
-// impl<I: Iterator> TokenableIterator for Tokenable<I> {
-//     fn look(&mut self) -> Option<Self::Item> {
-//         match self.data.take() {
-//             Some(v) => Some(v),
-//             None => None,
-//         }
-//     }
-// }
+impl<'a> TokenatorTrait for Tokenator<'a> {
+    fn next(&mut self) -> Option<&token::Token> {
+        if self.buffer.get(self.index).is_none() {
+            None
+        }
+        else {
+            let tmp = self.buffer.get(self.index);
+            self.index += 1;
+            tmp
+        }
+    }
+
+    fn look(&self) -> Option<&token::Token> {
+        self.buffer.get(self.index)
+    }
+
+    fn look_back(&self) -> Option<&token::Token> {
+        self.buffer.get(self.index - 1)
+    }
+
+    fn look_ahead(&self) -> Option<&token::Token> {
+        self.buffer.get(self.index + 1)
+    }
+
+    fn match_next(&mut self, token_type: token_types::TokenTypes) -> bool {
+        match self.buffer.get(self.index) {
+            Some(tk) => {
+                if tk.get_type() == token_type {
+                    self.next();
+                    true
+                }
+                else {
+                    false
+                }
+            },
+            None => false,
+        }
+    }
+}
 
 pub type Metainfo = Vec<Metadata>;
 

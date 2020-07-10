@@ -19,8 +19,8 @@ pub mod scanner {
     // implements the regular expression responsible to look for {= .* =} and
     // {% .* %}. Each of these two blocks will be evaluated, anything else is
     // just text.
-    const REG_BLOCK: &str = concat!(r#"(?P<code>\{% [a-z][a-zA-Z0-9\-,.%_\\\[\]"() ]+ %\})|"#,
-                                     r#"(?P<echo>\{= [a-z][a-zA-Z0-9_\[\]"]+ =\})|"#,
+    const REG_BLOCK: &str = concat!(r#"(?P<code>\{% [a-z][a-zA-Z0-9*\-,.%_\\\[\]"() ]+ %\})|"#,
+                                     r#"(?P<echo>\{= [a-z0-9"\-][a-zA-Z0-9*\-,.%_\\\[\]"() ]+ =\})|"#,
                                      r#"(?P<text>.[^\{]*)"#);
 
     const REG_INNER_BLOCK: &str = r"^\{[%|=] (?P<code>.+) [%|=]\}";
@@ -59,7 +59,12 @@ pub mod scanner {
                             else if s == "echo" {
                                 let data = String::from(gs.as_str());
                                 mtype = metadata::Metatype::ECHO;
-                                tokens = Some(tokenize(&data));
+
+                                let print_tk = token::Token::new(token_types::TokenTypes::PRINT,
+                                                                 Some(String::from("print")));
+                                let mut vec = vec![print_tk];
+                                vec.extend(tokenize(&data));
+                                tokens = Some(vec);
                             }
                             else {
                                 mtype = metadata::Metatype::COMMENT;

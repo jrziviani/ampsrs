@@ -13,6 +13,18 @@ impl Token {
             value,
         }
     }
+
+    pub fn get_type(&self) -> token_types::TokenTypes {
+        self.token_type.clone()
+    }
+
+    pub fn get_data(&self) -> String
+    {
+        match &self.value {
+            Some(s) => s.clone(),
+            None => String::from("<none>"),
+        }
+    }
 }
 
 impl fmt::Debug for Token {

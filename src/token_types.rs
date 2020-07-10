@@ -1,7 +1,7 @@
 use phf::phf_map;
 
 #[allow(dead_code)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TokenTypes {
     IDENTIFIER,
     VARIABLE,

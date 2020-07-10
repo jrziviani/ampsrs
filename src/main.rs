@@ -7,6 +7,7 @@ mod token_types;
 mod token;
 mod metadata;
 mod scan;
+mod context;
 mod generator;
 
 use scan::scanner;
