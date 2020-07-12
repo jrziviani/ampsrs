@@ -2,9 +2,9 @@ pub mod scanner {
     use regex::Regex;
     use std::io::BufRead;
 
-    use crate::metadata;
-    use crate::token_types;
-    use crate::token;
+    use crate::engine::metadata;
+    use crate::engine::token_types;
+    use crate::engine::token;
 
     pub trait PeekableIterator : std::iter::Iterator {
         fn peek(&mut self) -> Option<&Self::Item>;
@@ -19,17 +19,28 @@ pub mod scanner {
     // implements the regular expression responsible to look for {= .* =} and
     // {% .* %}. Each of these two blocks will be evaluated, anything else is
     // just text.
-    const REG_BLOCK: &str = concat!(r#"(?P<code>\{% [a-z][a-zA-Z0-9*\-,.%_\\\[\]"() ]+ %\})|"#,
-                                     r#"(?P<echo>\{= [a-z0-9"\-][a-zA-Z0-9*\-,.%_\\\[\]"() ]+ =\})|"#,
+    const REG_BLOCK: &str = concat!(r#"(?P<code>\{% [a-z][a-zA-Z0-9*\-,.%_\\\[\]"()+/ ]+ %\})|"#,
+                                     r#"(?P<echo>\{= [a-z0-9"\-][a-zA-Z0-9*\-,.%_\\\[\]"()+/ ]+ =\})|"#,
                                      r#"(?P<text>.[^\{]*)"#);
 
     const REG_INNER_BLOCK: &str = r"^\{[%|=] (?P<code>.+) [%|=]\}";
 
-    pub fn scan(file: &mut std::io::BufReader<std::fs::File>) -> metadata::Metainfo {
+    pub fn scan_old(file: &mut std::io::BufReader<std::fs::File>) -> metadata::Metainfo {
         let mut ret: metadata::Metainfo = Vec::new();
 
         for line in file.lines() {
             let mut data = parse_block(&line.unwrap());
+            ret.append(&mut data);
+        }
+
+        ret
+    }
+
+    pub fn scan(template: &String) -> metadata::Metainfo {
+        let mut ret: metadata::Metainfo = Vec::new();
+
+        for line in template.lines() {
+            let mut data = parse_block(&line.to_string());
             ret.append(&mut data);
         }
 

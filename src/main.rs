@@ -1,19 +1,16 @@
-use std::env;
-use std::fs::File;
-use std::io::BufReader;
-use std::io::ErrorKind;
+mod amps;
+mod cli;
 
-mod token_types;
-mod token;
-mod metadata;
-mod scan;
-mod context;
-mod generator;
-
-use scan::scanner;
-use generator::parsing;
+mod engine;
 
 fn main() -> Result<(), std::io::Error> {
+    cli::main_loop();
+
+    Ok(())
+}
+
+/*
+fn main_a() -> Result<(), std::io::Error> {
     let args: Vec<String> = env::args().collect();
     println!("{:?}", args);
 
@@ -45,3 +42,4 @@ fn main() -> Result<(), std::io::Error> {
 
     Ok(())
 }
+*/

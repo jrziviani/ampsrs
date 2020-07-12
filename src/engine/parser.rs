@@ -1,14 +1,12 @@
 pub mod parsing {
-    use crate::metadata;
-    use crate::context;
-    use crate::context::StackType;
-    use crate::metadata::TokenatorTrait;
-    use crate::token_types::TokenTypes;
+    use crate::engine::metadata;
+    use crate::engine::context;
+    use crate::engine::context::StackType;
+    use crate::engine::metadata::TokenatorTrait;
+    use crate::engine::token_types::TokenTypes;
 
     pub fn parse(meta: &metadata::Metainfo) {
         let mut ctx: context::Context = context::Context::new();
-
-        //println!("{:#?}", meta);
 
         for tokens in meta {
             match tokens.get_tokens() {
@@ -19,8 +17,7 @@ pub mod parsing {
                 None => continue,
             }
         }
-
-        println!("{:#?}", ctx);
+        //println!("{:#?}", ctx);
     }
 
     fn parse_statement<I>(iter: &mut I, ctx: &mut context::Context)
@@ -28,6 +25,7 @@ pub mod parsing {
         match iter.next() {
             Some(tk) => match tk.get_type() {
                 TokenTypes::PRINT => parse_print(iter, ctx),
+                TokenTypes::IF => parse_if(iter, ctx),
                 _ => println!("{:?}", tk),
             },
             None => (),
@@ -50,13 +48,18 @@ pub mod parsing {
                     }
                 }
             },
-            None => panic!("invalid print format"),
+            None => (),
         }
+    }
+
+    fn parse_if<I>(iter: &mut I, ctx: &mut context::Context)
+    where I: TokenatorTrait {
+        parse_expression(iter, ctx)
     }
 
     fn parse_expression<I>(iter: &mut I, ctx: &mut context::Context)
     where I: TokenatorTrait {
-        parse_equality(iter, ctx);
+        parse_equality(iter, ctx)
     }
 
     fn parse_equality<I>(iter: &mut I, ctx: &mut context::Context)
@@ -71,7 +74,10 @@ pub mod parsing {
 
             let right = ctx.stack_pop();
             let left = ctx.stack_pop();
-            ctx.stack_push(compute_binary(left, right, oper));
+            match compute_binary(left, right, oper) {
+                Ok(stk) => ctx.stack_push(stk),
+                Err(e) => ctx.errors_push(e),
+            }
         }
     }
 
@@ -87,7 +93,10 @@ pub mod parsing {
 
             let right = ctx.stack_pop();
             let left = ctx.stack_pop();
-            ctx.stack_push(compute_binary(left, right, oper));
+            match compute_binary(left, right, oper) {
+                Ok(stk) => ctx.stack_push(stk),
+                Err(e) => ctx.errors_push(e),
+            }
         }
     }
 
@@ -105,7 +114,10 @@ pub mod parsing {
 
             let right = ctx.stack_pop();
             let left = ctx.stack_pop();
-            ctx.stack_push(compute_binary(left, right, oper));
+            match compute_binary(left, right, oper) {
+                Ok(stk) => ctx.stack_push(stk),
+                Err(e) => ctx.errors_push(e),
+            }
         }
     }
 
@@ -121,7 +133,10 @@ pub mod parsing {
 
             let right = ctx.stack_pop();
             let left = ctx.stack_pop();
-            ctx.stack_push(compute_binary(left, right, oper));
+            match compute_binary(left, right, oper) {
+                Ok(stk) => ctx.stack_push(stk),
+                Err(e) => ctx.errors_push(e),
+            }
         }
     }
 
@@ -138,7 +153,10 @@ pub mod parsing {
 
             let right = ctx.stack_pop();
             let left = ctx.stack_pop();
-            ctx.stack_push(compute_binary(left, right, oper));
+            match compute_binary(left, right, oper) {
+                Ok(stk) => ctx.stack_push(stk),
+                Err(e) => ctx.errors_push(e),
+            }
         }
     }
 
@@ -156,15 +174,15 @@ pub mod parsing {
             let last_eval = ctx.stack_pop();
             if operator == TokenTypes::MINUS {
                 match last_eval {
-                    StackType::Text(t) => panic!("invalid -{}", t),
-                    StackType::Bool(b) => panic!("invalid -{}", b),
+                    StackType::Text(t)   => ctx.errors_push(String::from(format!("invalid -{}", t))),
+                    StackType::Bool(b)   => ctx.errors_push(String::from(format!("invalid -{}", b))),
                     StackType::Number(n) => ctx.stack_push(StackType::Number(-n)),
                 }
             }
             else {
                 match last_eval {
-                    StackType::Text(t) => panic!("invalid !{}", t),
-                    StackType::Bool(b) => ctx.stack_push(StackType::Bool(!b)),
+                    StackType::Text(t)   => ctx.errors_push(String::from(format!("invalid !{}", t))),
+                    StackType::Bool(b)   => ctx.stack_push(StackType::Bool(!b)),
                     StackType::Number(n) => ctx.stack_push(StackType::Number(!n)),
                 }
             }
@@ -180,7 +198,7 @@ pub mod parsing {
             let data = iter.look_back().unwrap().get_data();
             match data.parse::<i64>() {
                 Ok(n) => ctx.stack_push(StackType::Number(n)),
-                Err(e) => panic!("impossible converting {} to u64 - {}", data, e),
+                Err(e) => ctx.errors_push(String::from(format!("impossible converting {} to u64 - {}", data, e))),
             }
         }
         else if iter.match_next(TokenTypes::STRING) {
@@ -193,13 +211,49 @@ pub mod parsing {
         else if iter.match_next(TokenTypes::FALSE) {
             ctx.stack_push(StackType::Bool(false));
         }
+        else if iter.match_next(TokenTypes::LPAREN) {
+            parse_expression(iter, ctx);
+
+            if !iter.match_next(TokenTypes::RPAREN) {
+                ctx.errors_push(String::from("missing closing"));
+            }
+        }
+        else if iter.match_next(TokenTypes::IDENTIFIER) {
+            let key = iter.look_back().unwrap().get_data();
+            if !ctx.env_key_exists(&key) {
+                ctx.errors_push(String::from(format!("missing closing {}", key)));
+            }
+
+            let found_left_bracket = match iter.look() {
+                Some(tk) => tk.get_type() == TokenTypes::LBRACKET,
+                None => false,
+            };
+
+            if found_left_bracket {
+                iter.next();
+                parse_primary(iter, ctx);
+
+                if !iter.match_next(TokenTypes::RBRACKET) {
+                    ctx.errors_push(String::from("missing closing ]"));
+                }
+
+                match ctx.stack_pop() {
+                    StackType::Text(id) => ctx.stack_push_from_env_map(&key, &id),
+                    StackType::Number(id) => ctx.stack_push_from_env_vector(&key, id as usize),
+                    _ => ctx.errors_push(String::from("invalid id")),
+                }
+            }
+            else {
+                ctx.stack_push_from_env(&key);
+            }
+        }
         else {
-            panic!("unexpected token {:#?}", iter.look());
+            ctx.errors_push(String::from(format!("unexpected token {:#?}", iter.look())));
         }
     }
 
-    fn compute_binary(left: StackType, right: StackType, oper: TokenTypes) -> StackType {
-        let ret: StackType;
+    fn compute_binary(left: StackType, right: StackType, oper: TokenTypes) -> Result<StackType, String> {
+        let ret: Result<StackType, String>;
 
         if matches!(left, StackType::Text(_)) && matches!(right, StackType::Text(_)) {
             ret = compute_strings(left, right, oper);
@@ -211,41 +265,53 @@ pub mod parsing {
                 matches!(right, StackType::Bool(_)) {
             let a = match left {
                 StackType::Bool(b) => b,
-                _ => panic!("run to the hills"),
+                _ => return Err(String::from("run to the hills")),
             };
 
             let b = match right {
                 StackType::Bool(b) => b,
-                _ => panic!("run to the hills"),
+                _ => return Err(String::from("run to the hills")),
             };
 
             ret = match oper {
-                TokenTypes::AND => StackType::Bool(a && b),
-                TokenTypes::OR  => StackType::Bool(a || b),
-                TokenTypes::EQ  => StackType::Bool(a == b),
-                TokenTypes::NE  => StackType::Bool(a != b),
-                _ => panic!("Operator {:#?} invalid for booleans", oper),
+                TokenTypes::AND => Ok(StackType::Bool(a && b)),
+                TokenTypes::OR  => Ok(StackType::Bool(a || b)),
+                TokenTypes::EQ  => Ok(StackType::Bool(a == b)),
+                TokenTypes::NE  => Ok(StackType::Bool(a != b)),
+                _ => return Err(String::from(format!("Operator {:#?} invalid for booleans", oper))),
             };
         }
         else {
-            panic!("mimatch types {:?} and {:?}", left, right);
+            let lt = match left {
+                StackType::Text(t)   => format!("text({})", t),
+                StackType::Bool(b)   => format!("bool({})", b),
+                StackType::Number(n) => format!("number({})", n),
+            };
+
+            let rt = match right {
+                StackType::Text(t)   => format!("text({})", t),
+                StackType::Bool(b)   => format!("bool({})", b),
+                StackType::Number(n) => format!("number({})", n),
+            };
+
+            return Err(String::from(format!("mismatch types {} {:?} {}", lt, oper, rt)));
         }
 
         ret
     }
 
-    fn compute_strings(left: StackType, right: StackType, oper: TokenTypes) -> StackType {
+    fn compute_strings(left: StackType, right: StackType, oper: TokenTypes) -> Result<StackType, String> {
         let a = match left {
             StackType::Text(b) => b,
-            _ => panic!("run to the hills"),
+            _ => return Err(String::from("run to the hills")),
         };
 
         let b = match right {
             StackType::Text(b) => b,
-            _ => panic!("run to the hills"),
+            _ => return Err(String::from("run to the hills")),
         };
 
-        match oper {
+        let result = match oper {
             TokenTypes::NE   => StackType::Bool(a != b),
             TokenTypes::EQ   => StackType::Bool(a == b),
             TokenTypes::GT   => StackType::Bool(a > b),
@@ -253,22 +319,24 @@ pub mod parsing {
             TokenTypes::LT   => StackType::Bool(a < b),
             TokenTypes::LE   => StackType::Bool(a <= b),
             TokenTypes::PLUS => StackType::Text(a + &b),
-            _ => panic!("Operator {:#?} invalid for strings", oper),
-        }
+            _ => return Err(String::from(format!("Operator {:#?} invalid for strings", oper))),
+        };
+
+        Ok(result)
     }
 
-    fn compute_numbers(left: StackType, right: StackType, oper: TokenTypes) -> StackType {
+    fn compute_numbers(left: StackType, right: StackType, oper: TokenTypes) -> Result<StackType, String> {
         let a = match left {
             StackType::Number(b) => b,
-            _ => panic!("run to the hills"),
+            _ => return Err(String::from("run to the hills")),
         };
 
         let b = match right {
             StackType::Number(b) => b,
-            _ => panic!("run to the hills"),
+            _ => return Err(String::from("run to the hills")),
         };
 
-        match oper {
+        let result = match oper {
             TokenTypes::NE      => StackType::Bool(a != b),
             TokenTypes::EQ      => StackType::Bool(a == b),
             TokenTypes::GT      => StackType::Bool(a > b),
@@ -278,34 +346,36 @@ pub mod parsing {
             TokenTypes::PLUS    => {
                 match a.checked_add(b) {
                     Some(i) => StackType::Number(i),
-                    None => panic!("{} + {} underflows", a, b),
+                    None    => return Err(String::from(format!("{} + {} overflows", a, b))),
                 }
             },
             TokenTypes::MINUS   => {
                 match a.checked_sub(b) {
                     Some(i) => StackType::Number(i),
-                    None => panic!("{} - {} underflows", a, b),
+                    None    => return Err(String::from(format!("{} - {} underflows", a, b))),
                 }
             },
             TokenTypes::STAR    => {
                 match a.checked_mul(b) {
                     Some(i) => StackType::Number(i),
-                    None => panic!("{} * {} overflows", a, b),
+                    None    => return Err(String::from(format!("{} * {} overflows", a, b))),
                 }
             }
             TokenTypes::SLASH   => {
                 match a.checked_div(b) {
                     Some(i) => StackType::Number(i),
-                    None => panic!("{} / {} division by 0", a, b),
+                    None    => return Err(String::from(format!("{} / {} division by 0", a, b))),
                 }
             },
             TokenTypes::PERCENT => {
                 match a.checked_rem(b) {
                     Some(i) => StackType::Number(i),
-                    None => panic!("{} % {} division by 0", a, b),
+                    None    => return Err(String::from(format!("{} / {} division by 0", a, b))),
                 }
             },
-            _ => panic!("Operator {:#?} invalid for strings", oper),
-        }
+            _ => return Err(String::from(format!("Operator {:#?} invalid for numbers", oper))),
+        };
+
+        Ok(result)
     }
 }
