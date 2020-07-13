@@ -27,12 +27,11 @@ impl Amps {
             },
         };
 
-        parser::parsing::parse(&metainfo);
-
-
         //for info in metainfo {
         //    println!("{:#?}", info);
         //}
+
+        parser::parsing::parse(&metainfo);
     }
 
     pub fn get_errors(&self) -> &Vec<String> {

@@ -58,15 +58,29 @@ pub mod scanner {
                         Some(gs) => {
                             let tokens: Option<Vec<token::Token>>;
                             let mtype: metadata::Metatype;
+
+                            // text is anything outside a block {% %} or {= =}, they are not
+                            // evaluated and are simply printed as is
                             if s == "text" {
-                                mtype = metadata::Metatype::TEXT;
-                                tokens = None;
+                                mtype = metadata::Metatype::ECHO;
+
+                                let print_tk = token::Token::new(token_types::TokenTypes::PRINT,
+                                                                 Some(String::from("print")));
+                                let string_tk = token::Token::new(token_types::TokenTypes::STRING,
+                                                                  Some(String::from(gs.as_str())));
+                                tokens = Some(vec![print_tk, string_tk]);
                             }
+
+                            // code is a block inside {% %}, there must one and only one
+                            // statement per block
                             else if s == "code" {
                                 let data = String::from(gs.as_str());
                                 mtype = metadata::Metatype::CODE;
                                 tokens = Some(tokenize(&data));
                             }
+
+                            // echo is a block inside {= =}, it behaves like texts but the block
+                            // content is evaluated before printing
                             else if s == "echo" {
                                 let data = String::from(gs.as_str());
                                 mtype = metadata::Metatype::ECHO;
@@ -77,6 +91,8 @@ pub mod scanner {
                                 vec.extend(tokenize(&data));
                                 tokens = Some(vec);
                             }
+
+                            // anything else is error
                             else {
                                 mtype = metadata::Metatype::COMMENT;
                                 tokens = None;
@@ -133,7 +149,12 @@ pub mod scanner {
                         }
                         // operators and errors
                         _ => {
-                            ret.push(parse_single_op(ch));
+                            let oper = parse_single_op(ch);
+                            if oper.is_err() {
+                                break;
+                            }
+
+                            ret.push(oper.unwrap());
                             iter.next();
                         }
                     }
@@ -221,8 +242,8 @@ pub mod scanner {
         }
     }
 
-    fn parse_single_op(op: char) -> token::Token {
-        token::Token::new(match op {
+    fn parse_single_op(op: char) -> Result<token::Token, String> {
+        let op_type = match op {
             '+' => token_types::TokenTypes::PLUS,
             '-' => token_types::TokenTypes::MINUS,
             '/' => token_types::TokenTypes::SLASH,
@@ -234,7 +255,9 @@ pub mod scanner {
             '[' => token_types::TokenTypes::LBRACKET,
             ')' => token_types::TokenTypes::RPAREN,
             ']' => token_types::TokenTypes::RBRACKET,
-            _ => panic!("invalid operator {}", op),
-        }, Some(op.to_string()))
+            _   => return Err(String::from(format!("invalid operator {}", op))),
+        };
+
+        Ok(token::Token::new(op_type, Some(op.to_string())))
     }
 }

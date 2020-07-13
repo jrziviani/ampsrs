@@ -32,6 +32,10 @@ impl Metadata {
     pub fn get_type(&self) -> &Metatype {
         &self.mtype
     }
+
+    pub fn get_data(&self) -> &String {
+        &self.data
+    }
 }
 
 pub struct Tokenator<'a> {
@@ -53,6 +57,7 @@ pub trait TokenatorTrait {
     fn look(&self)       -> Option<&token::Token>;
     fn look_back(&self)  -> Option<&token::Token>;
     fn look_ahead(&self) -> Option<&token::Token>;
+    fn skip_all(&mut self);
     fn match_next(&mut self, token_type: token_types::TokenTypes) -> bool;
 }
 
@@ -78,6 +83,10 @@ impl<'a> TokenatorTrait for Tokenator<'a> {
 
     fn look_ahead(&self) -> Option<&token::Token> {
         self.buffer.get(self.index + 1)
+    }
+
+    fn skip_all(&mut self) {
+        self.index = self.buffer.len();
     }
 
     fn match_next(&mut self, token_type: token_types::TokenTypes) -> bool {

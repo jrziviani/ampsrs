@@ -24,16 +24,27 @@ pub mod parsing {
     where I: TokenatorTrait {
         match iter.next() {
             Some(tk) => match tk.get_type() {
-                TokenTypes::PRINT => parse_print(iter, ctx),
-                TokenTypes::IF => parse_if(iter, ctx),
+                TokenTypes::PRINT   => parse_print(iter, ctx),
+                TokenTypes::IF      => parse_if(iter, ctx),
+                TokenTypes::ELIF    => parse_elif(iter, ctx),
+                TokenTypes::ELSE    => parse_else(iter, ctx),
+                TokenTypes::ENDIF   => parse_endif(ctx),
                 _ => println!("{:?}", tk),
             },
             None => (),
         }
     }
 
+    // parse_print
+    // {= expression =} or {% print expression %}
+    //
+    // Returns an evaluated expression
     fn parse_print<I>(iter: &mut I, ctx: &mut context::Context)
     where I: TokenatorTrait {
+        if !ctx.branch_is_taken().1 {
+            return;
+        }
+
         match iter.look() {
             Some(tk) => {
                 if tk.get_type() == TokenTypes::IDENTIFIER {
@@ -42,9 +53,17 @@ pub mod parsing {
                 else {
                     parse_expression(iter, ctx);
                     match ctx.stack_pop() {
-                        StackType::Text(t) => println!("text: {}", t),
-                        StackType::Number(t) => println!("number: {}", t),
-                        StackType::Bool(t) => println!("bool: {}", t),
+                        Some(d) => match d {
+                            StackType::Text(t) => println!("text: {}", t),
+                            StackType::Number(t) => println!("number: {}", t),
+                            StackType::Bool(t) => println!("bool: {}", t),
+                        },
+                        None => {
+                            println!("Errors:");
+                            for err in ctx.errors_it() {
+                                println!("\t{:?}", err);
+                            }
+                        }
                     }
                 }
             },
@@ -52,9 +71,107 @@ pub mod parsing {
         }
     }
 
+    // parse_if
+    // {% if <identifier|primary> condition <identifier|primary> %}
+    //   body
+    // {% elif <identifier|primary> condition <identifier|primary> %}
+    //   body
+    // {% else %}
+    //   body
+    // {% endif %}
+    //
+    // Evaluates an expression to boolean. If it evaluates to true, body is executed.
+    // elif and else are optional
     fn parse_if<I>(iter: &mut I, ctx: &mut context::Context)
     where I: TokenatorTrait {
-        parse_expression(iter, ctx)
+        // if this block is being parsed but the branch above it was not taken,
+        // ignore it and skip the next tokens
+        if !ctx.branch_is_taken().1 {
+            iter.skip_all();
+            return;
+        }
+
+        parse_expression(iter, ctx);
+        match ctx.stack_pop() {
+            Some(d) => match d {
+                StackType::Bool(b) => ctx.branch_push(TokenTypes::IF, b),
+                _ => ctx.errors_push(String::from("if expression must evaluates to boolean")),
+            },
+            None => ctx.errors_push(String::from("if expression cannot be evaluated")),
+        }
+    }
+
+    // parse_elif
+    // {% elif <identifier|primary> condition <identifier|primary> %}
+    // body
+    // {% endif %}
+    fn parse_elif<I>(iter: &mut I, ctx: &mut context::Context)
+    where I: TokenatorTrait {
+        let branch = ctx.branch_is_taken();
+
+        // make sure we don't have an 'elif' clause beginning a branch sequence
+        if branch.0 != TokenTypes::IF {
+            ctx.errors_push(String::from("mimatch elif"));
+            return;
+        }
+
+        // if the last branch was already taken we can skip this one
+        if branch.1 {
+            iter.skip_all();
+            return;
+        }
+
+        if ctx.branch_pop().is_err() {
+            ctx.errors_push(String::from("unexpected elif error"));
+            return;
+        }
+        parse_if(iter, ctx);
+    }
+
+    // parse_else
+    // {% else %}
+    // body
+    // {% endif %}
+    fn parse_else<I>(iter: &mut I, ctx: &mut context::Context)
+    where I: TokenatorTrait {
+        let branch = ctx.branch_is_taken();
+
+        // make sure 'else' matches an 'if' clause
+        if branch.0 != TokenTypes::IF {
+            ctx.errors_push(String::from("mismatch else"));
+            return;
+        }
+
+        // if the last branch was already taken we can skip this one
+        if branch.1 {
+            iter.skip_all();
+            return;
+        }
+
+        if ctx.branch_pop().is_err() {
+            ctx.errors_push(String::from("unexpected else error"));
+            return;
+        }
+        ctx.branch_push(TokenTypes::ELSE, true);
+    }
+
+    // parse_endif
+    // {% endif %}
+    //
+    // closes an if block
+    fn parse_endif(ctx: &mut context::Context) {
+        let branch = ctx.branch_is_taken();
+
+        // make sure that this 'endif' really ends an 'if' clause
+        if branch.0 != TokenTypes::IF && branch.0 != TokenTypes::ELSE {
+            ctx.errors_push(String::from("mismatch endif"));
+            return;
+        }
+
+        if ctx.branch_pop().is_err() {
+            ctx.errors_push(String::from("unexpected else error"));
+            return;
+        }
     }
 
     fn parse_expression<I>(iter: &mut I, ctx: &mut context::Context)
@@ -72,8 +189,8 @@ pub mod parsing {
             let oper = iter.look_back().unwrap().get_type();
             parse_logical(iter, ctx);
 
-            let right = ctx.stack_pop();
-            let left = ctx.stack_pop();
+            let right = ctx.stack_pop().unwrap_or(context::StackType::Text(String::from("<null>")));
+            let left = ctx.stack_pop().unwrap_or(context::StackType::Text(String::from("<null>")));
             match compute_binary(left, right, oper) {
                 Ok(stk) => ctx.stack_push(stk),
                 Err(e) => ctx.errors_push(e),
@@ -91,11 +208,11 @@ pub mod parsing {
             let oper = iter.look_back().unwrap().get_type();
             parse_comparison(iter, ctx);
 
-            let right = ctx.stack_pop();
-            let left = ctx.stack_pop();
+            let right = ctx.stack_pop().unwrap_or(context::StackType::Text(String::from("<null>")));
+            let left = ctx.stack_pop().unwrap_or(context::StackType::Text(String::from("<null>")));
             match compute_binary(left, right, oper) {
                 Ok(stk) => ctx.stack_push(stk),
-                Err(e) => ctx.errors_push(e),
+                Err(e)  => ctx.errors_push(e),
             }
         }
     }
@@ -112,8 +229,8 @@ pub mod parsing {
             let oper = iter.look_back().unwrap().get_type();
             parse_addition(iter, ctx);
 
-            let right = ctx.stack_pop();
-            let left = ctx.stack_pop();
+            let right = ctx.stack_pop().unwrap_or(context::StackType::Text(String::from("<null>")));
+            let left = ctx.stack_pop().unwrap_or(context::StackType::Text(String::from("<null>")));
             match compute_binary(left, right, oper) {
                 Ok(stk) => ctx.stack_push(stk),
                 Err(e) => ctx.errors_push(e),
@@ -131,8 +248,8 @@ pub mod parsing {
             let oper = iter.look_back().unwrap().get_type();
             parse_multiplication(iter, ctx);
 
-            let right = ctx.stack_pop();
-            let left = ctx.stack_pop();
+            let right = ctx.stack_pop().unwrap_or(context::StackType::Text(String::from("<null>")));
+            let left = ctx.stack_pop().unwrap_or(context::StackType::Text(String::from("<null>")));
             match compute_binary(left, right, oper) {
                 Ok(stk) => ctx.stack_push(stk),
                 Err(e) => ctx.errors_push(e),
@@ -151,8 +268,8 @@ pub mod parsing {
             let oper = iter.look_back().unwrap().get_type();
             parse_unary(iter, ctx);
 
-            let right = ctx.stack_pop();
-            let left = ctx.stack_pop();
+            let right = ctx.stack_pop().unwrap_or(context::StackType::Text(String::from("<null>")));
+            let left = ctx.stack_pop().unwrap_or(context::StackType::Text(String::from("<null>")));
             match compute_binary(left, right, oper) {
                 Ok(stk) => ctx.stack_push(stk),
                 Err(e) => ctx.errors_push(e),
@@ -174,16 +291,26 @@ pub mod parsing {
             let last_eval = ctx.stack_pop();
             if operator == TokenTypes::MINUS {
                 match last_eval {
-                    StackType::Text(t)   => ctx.errors_push(String::from(format!("invalid -{}", t))),
-                    StackType::Bool(b)   => ctx.errors_push(String::from(format!("invalid -{}", b))),
-                    StackType::Number(n) => ctx.stack_push(StackType::Number(-n)),
+                    Some(d) => match d {
+                        StackType::Text(t)   => ctx.errors_push(String::from(format!("invalid -{}", t))),
+                        StackType::Bool(b)   => ctx.errors_push(String::from(format!("invalid -{}", b))),
+                        StackType::Number(n) => ctx.stack_push(StackType::Number(-n)),
+                    },
+                    None => {
+                        ctx.errors_push(String::from(format!("no data retrieved from the stack")));
+                    }
                 }
             }
             else {
                 match last_eval {
-                    StackType::Text(t)   => ctx.errors_push(String::from(format!("invalid !{}", t))),
-                    StackType::Bool(b)   => ctx.stack_push(StackType::Bool(!b)),
-                    StackType::Number(n) => ctx.stack_push(StackType::Number(!n)),
+                    Some(d) => match d {
+                        StackType::Text(t)   => ctx.errors_push(String::from(format!("invalid !{}", t))),
+                        StackType::Bool(b)   => ctx.stack_push(StackType::Bool(!b)),
+                        StackType::Number(n) => ctx.stack_push(StackType::Number(!n)),
+                    },
+                    None => {
+                        ctx.errors_push(String::from(format!("no data retrieved from the stack")));
+                    }
                 }
             }
         }
@@ -221,7 +348,7 @@ pub mod parsing {
         else if iter.match_next(TokenTypes::IDENTIFIER) {
             let key = iter.look_back().unwrap().get_data();
             if !ctx.env_key_exists(&key) {
-                ctx.errors_push(String::from(format!("missing closing {}", key)));
+                ctx.errors_push(String::from(format!("invalid identifier {}", key)));
             }
 
             let found_left_bracket = match iter.look() {
@@ -238,9 +365,14 @@ pub mod parsing {
                 }
 
                 match ctx.stack_pop() {
-                    StackType::Text(id) => ctx.stack_push_from_env_map(&key, &id),
-                    StackType::Number(id) => ctx.stack_push_from_env_vector(&key, id as usize),
-                    _ => ctx.errors_push(String::from("invalid id")),
+                    Some(d) => match d {
+                        StackType::Text(id) => ctx.stack_push_from_env_map(&key, &id),
+                        StackType::Number(id) => ctx.stack_push_from_env_vector(&key, id as usize),
+                        _ => ctx.errors_push(String::from("invalid id")),
+                    },
+                    None => {
+                        ctx.errors_push(String::from(format!("no data retrieved from the stack")));
+                    }
                 }
             }
             else {

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fmt;
+use super::token_types;
 
 pub enum StackType {
     Number(i64),
@@ -27,6 +28,7 @@ pub struct Context<'a> {
     the_stack: Vec<StackType>,
     the_environment: HashMap<String, &'a EnvType>,
     the_problems: Vec<String>,
+    branches: Vec<(token_types::TokenTypes, bool)>,
     program_counter: usize,
 }
 
@@ -36,7 +38,23 @@ impl<'a> Context<'a> {
             the_stack: Vec::new(),
             the_environment: HashMap::new(),
             the_problems: Vec::new(),
+            branches: Vec::new(),
             program_counter: 0,
+        }
+    }
+
+    pub fn branch_is_taken(&self) -> &(token_types::TokenTypes, bool) {
+        self.branches.last().unwrap_or(&(token_types::TokenTypes::INVALID, true))
+    }
+
+    pub fn branch_push(&mut self, ttype: token_types::TokenTypes, cond: bool) {
+        self.branches.push((ttype, cond));
+    }
+
+    pub fn branch_pop(&mut self) -> Result<(), ()> {
+        match self.branches.pop() {
+            Some(_) => Ok(()),
+            None => Err(()),
         }
     }
 
@@ -44,15 +62,16 @@ impl<'a> Context<'a> {
         self.the_problems.push(error);
     }
 
+    pub fn errors_it(&self) -> std::slice::Iter<String> {
+        self.the_problems.iter()
+    }
+
     pub fn stack_push(&mut self, data: StackType) {
         self.the_stack.push(data);
     }
 
-    pub fn stack_pop(&mut self) -> StackType {
-        match self.the_stack.pop() {
-            Some(d) => d,
-            None => panic!("run to the hills"),
-        }
+    pub fn stack_pop(&mut self) -> Option<StackType> {
+        self.the_stack.pop()
     }
 
     pub fn env_add_or_update(&mut self, key: &String, data: &'a EnvType) {
